@@ -1,0 +1,457 @@
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/stat.h>
+
+
+int* tape;
+int size = 3000;
+int debug = 0;
+int ascii = 1;
+int cur = 0;
+int len;
+int loop = 0;
+int break_point = -1;
+int comp = 0;
+char* dest;
+
+char* con;
+
+int isNumeric(char* str)
+{
+    for (int i=0;str[i]!=0 && str[i]!='\n';i++)
+    {
+        if (str[i]=='-' && i==0)
+            continue;
+        if (str[i]>'9' || str[i]<'0')
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int fileExists(char* fn)
+{
+    struct stat buffer;
+    return !stat(fn,&buffer);
+}
+
+int fileSize(char* fn)
+{
+    FILE* f = fopen(fn,"r");
+    fseek(f,0,SEEK_END);
+    int l = ftell(f);
+    fclose(f);
+    return l;
+}
+
+void execute()
+{
+    int count = 0;
+    char buffer[100];
+    int break_started = 0;
+    for (int i=0;i<len;i++)
+    {
+        if (i==break_point)
+        {
+            break_started = 1;
+            printf("Break point reached\nEnter s to stop execution, c to continue after break point, e to end break point, otherwise next\n");
+            debug = 1;
+        }
+        if (break_started)
+        {
+            fgets(buffer,100,stdin);
+            if (strcmp(buffer,"s")==0 || strcmp(buffer,"S")==0 )
+            {
+                return;
+            }
+            else if (strcmp(buffer,"c")==0 || strcmp(buffer,"C")==0)
+            {
+                break_started = 0;
+                debug = 0;
+            }
+            else if (strcmp(buffer,"e")==0 || strcmp(buffer,"E")==0)
+            {
+                break_started = 0;
+                debug = 0;
+                break_point = -1;
+            }
+        }
+        char c = con[i];
+        switch (c)
+        {
+        case '>':
+            if (debug)
+                printf("Move right from cell %d ",cur);
+            if (loop)
+                cur = (cur+1)%size;
+            else
+                cur++;
+            if (debug)
+                printf("to cell %d\n",cur);
+            break;
+        case '<':
+            if (debug)
+                printf("Move left from cell %d ",cur);
+            if (loop)
+                cur = (cur-1)%size;
+            else
+                cur--;
+            if (debug)
+                printf("to cell %d\n",cur);
+            break;
+        case '+':
+            if (debug)
+                printf("Increment cell %d from %d ",cur,tape[cur]);
+            tape[cur]++;
+            if (debug)
+                printf("to %d\n",tape[cur]);
+            break;
+        case '-':
+            if (debug)
+                printf("Decrement cell %d from %d ",cur,tape[cur]);
+            tape[cur]--;
+            if (debug)
+                printf("to %d\n",tape[cur]);
+            break;
+        case '[':
+            if (tape[cur])
+            {
+                if (debug)
+                    printf("Enter loop at %d\n",i);
+                break;
+            }
+            if (debug)
+                printf("Skip loop from %d ",i);
+            count = 1;
+            while (count>0 && i<len)
+            {
+                i++;
+                if (con[i]=='[')
+                {
+                    count++;
+                }
+                else if (con[i]==']')
+                {
+                    count--;
+                }
+            }
+            if (debug)
+                printf("to %d\n",i);
+            break;
+        case ']':
+            if (!tape[cur])
+            {
+                if (debug)
+                    printf("Exit loop at %d\n",i);
+                break;
+            }
+            if (debug)
+                printf("Loop jump back from %d ",i);
+            count = 1;
+            while (count>0 && i>=0)
+            {
+                i--;
+                if (con[i]=='[')
+                {
+                    count--;
+                }
+                else if(con[i]==']')
+                {
+                    count++;
+                }
+            }
+            if (debug)
+                printf("to %d\n",i);
+            break;
+        case '.':
+            if (ascii)
+                printf("%c",tape[cur]);
+            else
+                printf("%d",tape[cur]);
+            break;
+        case ',':
+            if (ascii)
+            {
+                fgets(buffer,100,stdin);
+                tape[cur] = buffer[0];
+            }
+            else
+            {
+                do
+                {
+                    fgets(buffer,100,stdin);
+                    if (!isNumeric(buffer))
+                    {
+                        printf("Input an integer\n");
+                    }
+                }while(!isNumeric(buffer));
+                tape[cur] = atoi(buffer);
+            }
+            break;
+        }
+    }
+}
+
+void compile()
+{
+    FILE* f = fopen(dest,"w");
+    if (f==0)
+    {
+        printf("Cannot write destination file: %s",dest);
+        return;
+    }
+    fputs("/* C Source File generated by BF */\n\n",f);
+    fputs("#include<stdio.h>\n",f);
+    fputs("#include<stdlib.h>\n\n",f);
+    if (!ascii)
+    {
+        fputs("int isNumeric(char* str){\n",f);
+        fputs("for (int i=0;str[i]!=0 && str[i] != \'\\n\';i++){\n",f);
+        fputs("if (str[i]=='-' && i==0) continue;\n",f);
+        fputs("if (str[i]>'9' || str[i]<'0') return 0;\n",f);
+        fputs("}\n",f);
+        fputs("return 1;\n",f);
+        fputs("}\n\n",f);
+    }
+    fputs("int main(int argc,char** argv){\n\n",f);
+    fprintf(f,"int* arr = (int*) malloc(%d*sizeof(int));\n",size);
+    fprintf(f,"for(int i=0;i<%d;arr[i]=0,i++);\n",size);
+    fprintf(f,"int i = 0;\n");
+    fprintf(f,"char buffer[100];\n\n");
+
+    int count = 0;
+    int inside = 0;
+    int change = 0;
+
+    for (int i=0;i<len;i++)
+    {
+        char c = con[i];
+        switch(c)
+        {
+        case '>':
+        case '<':
+            change = 0;
+            while(i<len)
+            {
+                c = con[i];
+                if (c=='>')
+                    change++;
+                else if (c=='<')
+                    change--;
+                else if (c=='+' || c=='-' || c=='[' || c==']' || c=='.' || c==',')
+                {
+                    i--;
+                    break;
+                }
+                i++;
+            }
+            if (loop)
+            {
+                fprintf(f,"i = ( i + %d ) %% %d;",change,size);
+            }
+            else
+            {
+                fprintf(f,"i += %d ;",change);
+            }
+            break;
+        case '+':
+        case '-':
+            change = 0;
+            while (i<len)
+            {
+                c = con[i];
+                if (c=='+')
+                    change++;
+                else if (c=='-')
+                    change--;
+                else if(c=='<' || c=='>' || c=='[' || c==']' || c=='.' || c==',')
+                {
+                    i--;
+                    break;
+                }
+                i++;
+            }
+            fprintf(f,"arr[ i ] += %d;\n",change);
+            break;
+        case '[':
+            fprintf(f,"while ( arr[ i ] ) {\n");
+            count++;
+            break;
+        case ']':
+            fprintf(f,"}\n");
+            count--;
+            if (count<0)
+            {
+                printf("Error to many ']' at: %d\n",i);
+            }
+            break;
+        case '.':
+            if (ascii)
+            {
+                fprintf(f,"printf(\"%%c\", arr[ i ] );\n");
+            }
+            else
+            {
+                fprintf(f,"printf(\"%%d\", arr[ i ] );\n");
+            }
+            break;
+        case ',':
+            if (ascii)
+            {
+                fprintf(f,"fgets(buffer,100,stdin);\n");
+                fprintf(f,"arr[ i ] = buffer[0];\n");
+            }
+            else
+            {
+                fprintf(f,"do {\n");
+                fprintf(f,"fgets(buffer,100,stdin);\n");
+                fprintf(f,"if (!isNumeric(buffer)) printf(\"Input an integer\\n\");\n");
+                fprintf(f,"} while (!isNumeric(buffer));\n");
+                fprintf(f,"arr[ i ] = atoi(buffer);\n");
+                /*do
+                {
+                    fgets(buffer,100,stdin);
+                    if (!isNumeric(buffer))
+                    {
+                        printf("Input an integer\n");
+                    }
+                }while(!isNumeric(buffer));
+                tape[cur] = atoi(buffer);*/
+            }
+            break;
+        }
+    }
+    while (count>0)
+    {
+        fputs("}\n",f);
+        count--;
+    }
+    fputs("printf(\"\\n\");\n",f);
+    fputs("\nfree(arr);\n",f);
+    fputs("\n}\n",f);
+    fclose(f);
+}
+
+int main(int argc,char** argv)
+{
+    char* source = "";
+    for (int i=1;i<argc;i++)
+    {
+        if (strcmp(argv[i],"-s")==0 || strcmp(argv[i],"-S")==0)
+        {
+            i++;
+            if (i>=argc)
+            {
+                printf("No size provided\n");
+                return -3;
+            }
+            else if(!isNumeric(argv[i]))
+            {
+                printf("Invalid size: %s\n",argv[i]);
+                return -4;
+            }
+            size = atoi(argv[i]);
+        }
+        else if (strcmp(argv[i],"-b")==0 || strcmp(argv[i],"-B")==0)
+        {
+            i++;
+            if (i>=argc)
+            {
+                break_point = 0;
+            }
+            else if (!isNumeric(argv[i]))
+            {
+                i--;
+                break_point = 0;
+            }
+            else
+            {
+                break_point = atoi(argv[i]);
+            }
+
+        }
+        else if (strcmp(argv[i],"-c")==0 || strcmp(argv[i],"-C")==0)
+        {
+            comp = 1;
+            i++;
+            if (i>=argc)
+            {
+                printf("No compilation destination provided\n");
+                return -5;
+            }
+            dest = argv[i];
+        }
+        else if (strcmp(argv[i],"-d")==0 || strcmp(argv[i],"-D")==0)
+        {
+            debug = 1;
+        }
+        else if (strcmp(argv[i],"-a")==0 || strcmp(argv[i],"-A")==0)
+        {
+            ascii = 1;
+        }
+        else if (strcmp(argv[i],"-n")==0 || strcmp(argv[i],"-N")==0)
+        {
+            ascii = 0;
+        }
+        else if (strcmp(argv[i],"-l")==0 || strcmp(argv[i],"-L")==0)
+        {
+            loop = 1;
+        }
+        else if(strcmp(argv[i],"-h")==0 || strcmp(argv[i],"-H")==0 || strcmp(argv[i],"-?")==0)
+        {
+            printf("BF Brainfuck interpreter version 0.1\n");
+            printf("Usage: %s <source> [options]\n",argv[0]);
+            printf("Options:\n");
+            printf("-s <size>\tSet tape size\n");
+            printf("-b [num]\tSet break point at num(=0 if not specified) charaters\n");
+            printf("-c <dest>\tCompile to C as dest file\n");
+            printf("-d\t\tEnable debug\n");
+            printf("-a\t\tAscii mode (default)\n");
+            printf("-n\t\tNumeric mode\n");
+            printf("-l\t\tEnable tape looping\n");
+            printf("-h\t\tSee Help\n");
+            return 0;
+        }
+        else
+        {
+            source = argv[i];
+        }
+    }
+    if (strcmp(source,"")==0)
+    {
+        printf("No source file provided\n");
+        return -1;
+    }
+    if (debug)
+        printf("Source: %s\n",source);
+    if (!fileExists(source))
+    {
+        printf("File not accessible: %s\n",source);
+        return -2;
+    }
+    tape = (int*) malloc(size*sizeof(int));
+    for (int i=0;i<size;i++)
+    {
+        tape[i] = 0;
+    }
+    len = fileSize(source);
+    con = (char*) malloc(len*sizeof(char));
+    FILE* f = fopen(source,"r");
+    for (int i=0;i<len;i++)
+    {
+        con[i] = fgetc(f);
+    }
+    fclose(f);
+    if (comp)
+    {
+        compile();
+    }
+    else
+    {
+        execute();
+        printf("\n");
+    }
+    free(tape);
+}
